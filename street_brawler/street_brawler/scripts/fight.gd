@@ -5,22 +5,30 @@ const FighterScript = preload("res://scripts/fighter.gd")
 var p1
 var p2
 var hud: Node2D
-var round_no := 1
-var wins := [0, 0]
-var timer := 99.0
-var phase := "intro"   # intro / fight / ko / matchend
-var phase_t := 0.0
+var round_no = 1
+var wins = [0, 0]
+var timer = 99.0
+var phase = "intro"   # intro / fight / ko / matchend / cutscene
+var phase_t = 0.0
 var sparks: Array = []
-var shake := 0.0
-var trail1 := 100.0
-var trail2 := 100.0
-var banner := ""
-var sub := ""
-var leaving := false
-var practice := false
+var shake = 0.0
+var trail1 = 100.0
+var trail2 = 100.0
+var banner = ""
+var sub = ""
+var leaving = false
+var practice = false
+var cutscene_name = ""
+var cutscene_source = null
 
 func _ready() -> void:
-    p1 = FighterScript.new()
+    var fighter_class = FighterScript
+    if Game.has("selected_fighter") and Game.selected_fighter == "ryu":
+        if FileAccess.file_exists("res://scripts/ryu.gd"):
+            fighter_class = load("res://scripts/ryu.gd")
+        else:
+            fighter_class = FighterScript
+    p1 = fighter_class.new()
     p2 = FighterScript.new()
     p1.pid = 1
     p2.pid = 2
@@ -30,12 +38,21 @@ func _ready() -> void:
     Game.paused = false
     p2.gi = Color(0.45, 0.6, 0.98)
     p2.band = Color(1.0, 0.85, 0.1)
+    if p1.has_method("char_name") == false and Game.has("selected_fighter") and Game.selected_fighter == "ryu":
+        # handled by ryu.gd if present; keep defaults otherwise
+        p1.char_name = "RYU"
+        p1.gi = Color(0.9, 0.22, 0.16)
+        p1.band = Color(0.95, 0.95, 0.8)
     p1.opp = p2
     p2.opp = p1
     add_child(p1)
     add_child(p2)
     p1.hit_landed.connect(_on_hit)
     p2.hit_landed.connect(_on_hit)
+    if p1.has_signal("ultimate_triggered"):
+        p1.connect("ultimate_triggered", Callable(self, "_on_ultimate"))
+    if p2.has_signal("ultimate_triggered"):
+        p2.connect("ultimate_triggered", Callable(self, "_on_ultimate"))
     hud = Node2D.new()
     add_child(hud)
     hud.draw.connect(_draw_hud)
@@ -58,12 +75,23 @@ func _on_hit(pos: Vector2, blocked: bool) -> void:
     sparks.append({"pos": pos, "t": 0.0, "b": blocked})
     shake = 2.0 if blocked else 7.0
 
+func _on_ultimate(who: Node, who_name: String) -> void:
+    if phase == "matchend" or phase == "ko":
+        return
+    cutscene_source = who
+    cutscene_name = who_name
+    phase = "cutscene"
+    phase_t = 0.0
+    p1.locked = true
+    p2.locked = true
+    Game.paused = true
+
 func _end_round() -> void:
     phase = "ko"
     phase_t = 0.0
     p1.locked = true
     p2.locked = true
-    var w := 0
+    var w = 0
     if p1.hp > p2.hp:
         w = 1
     elif p2.hp > p1.hp:
@@ -106,6 +134,17 @@ func _physics_process(delta: float) -> void:
                 if p1.hp <= 0 or p2.hp <= 0 or timer <= 0.0:
                     timer = maxf(timer, 0.0)
                     _end_round()
+        "cutscene":
+            if phase_t > 1.5:
+                if cutscene_source != null and cutscene_source.opp != null and cutscene_source.opp.has_method("take_hit"):
+                    var dir = 1 if cutscene_source.opp.position.x < cutscene_source.position.x else -1
+                    cutscene_source.opp.take_hit(260, 1.2, dir, true)
+                    cutscene_source.state = "win"
+                phase = "fight"
+                phase_t = 0.0
+                Game.paused = false
+                p1.locked = false
+                p2.locked = false
         "ko":
             if phase_t > 3.0:
                 if wins[0] >= 2 or wins[1] >= 2:
@@ -118,12 +157,11 @@ func _physics_process(delta: float) -> void:
             if phase_t > 1.0 and (Input.is_physical_key_pressed(KEY_ENTER) or Input.is_physical_key_pressed(KEY_SPACE)) and not leaving:
                 leaving = true
                 Game.goto("res://scenes/main_menu.tscn")
-    # keep fighters from overlapping
     if p1.position.y > 540.0 and p2.position.y > 540.0:
         var dx: float = p2.position.x - p1.position.x
         if absf(dx) < 56.0:
             var push: float = (56.0 - absf(dx)) * 0.5
-            var sgn := 1.0 if dx >= 0.0 else -1.0
+            var sgn = 1.0 if dx >= 0.0 else -1.0
             p1.position.x -= push * sgn
             p2.position.x += push * sgn
     trail1 = move_toward(trail1, float(p1.hp), 25.0 * delta)
@@ -141,7 +179,7 @@ func _draw() -> void:
 
 # ---------- HUD ----------
 func _bar(x: float, from_right: bool, hp_now: float, hp_trail: float) -> void:
-    var w := 440.0
+    var w = 440.0
     hud.draw_rect(Rect2(x - 5, 35, w + 10, 38), Color(0, 0, 0, 0.9))
     hud.draw_rect(Rect2(x, 40, w, 28), Color(0.3, 0.04, 0.04))
     var tw: float = w * hp_trail / 100.0
@@ -156,8 +194,8 @@ func _bar(x: float, from_right: bool, hp_now: float, hp_trail: float) -> void:
 func _draw_hud() -> void:
     _bar(60.0, false, float(p1.hp), trail1)
     _bar(652.0, true, float(p2.hp), trail2)
-    Game.label(hud, _tag(1) + " KENJI", Vector2(60, 108), 24, Color.WHITE, 440, true)
-    Game.label(hud, _tag(2) + " KENJI", Vector2(652, 108), 24, Color.WHITE, 440, true)
+    Game.label(hud, _tag(1) + " " + (p1.char_name if (p1 and hasattr(p1, "char_name") and p1.char_name != "") else "KENJI"), Vector2(60, 108), 24, Color.WHITE, 440, true)
+    Game.label(hud, _tag(2) + " " + (p2.char_name if (p2 and hasattr(p2, "char_name") and p2.char_name != "") else "KENJI"), Vector2(652, 108), 24, Color.WHITE, 440, true)
     for i in (0 if practice else 2):
         hud.draw_circle(Vector2(75 + i * 24, 128), 8, Color(1, 0.85, 0.1) if wins[0] > i else Color(0.25, 0.25, 0.3))
         hud.draw_circle(Vector2(1077 - i * 24, 128), 8, Color(1, 0.85, 0.1) if wins[1] > i else Color(0.25, 0.25, 0.3))
@@ -166,10 +204,10 @@ func _draw_hud() -> void:
     # hit sparks
     for s in sparks:
         var k: float = s["t"] / 0.25
-        var col := Color(0.4, 0.7, 1.0) if s["b"] else Color(1.0, 0.9, 0.3)
+        var col = Color(0.4, 0.7, 1.0) if s["b"] else Color(1.0, 0.9, 0.3)
         for i in 8:
             var a: float = i * PI / 4.0 + 0.3
-            var d := Vector2(cos(a), sin(a))
+            var d = Vector2(cos(a), sin(a))
             hud.draw_line(s["pos"] + d * (8.0 + k * 20.0), s["pos"] + d * (22.0 + k * 40.0), col, 5.0 * (1.0 - k) + 1.0)
     # banners
     match phase:
@@ -178,13 +216,16 @@ func _draw_hud() -> void:
                 Game.ctext(hud, "ROUND %d" % round_no, 320, 100, Color(1.0, 0.85, 0.1))
             else:
                 Game.ctext(hud, "FIGHT!", 320, 130, Color(0.95, 0.15, 0.15))
-            Game.ctext(hud, "P1: A/D move  W jump  F punch  G kick        P2: Arrows  K punch  L kick", 600, 18, Color(0.95, 0.95, 0.95))
+            Game.ctext(hud, "P1: A/D move  W jump  Arrow keys attack        P2: Arrows  K punch  L kick", 600, 18, Color(0.95, 0.95, 0.95))
             Game.ctext(hud, "Hold back to BLOCK  -  chain hits for combos  -  ESC / P: pause + combo list", 626, 18, Color(0.95, 0.95, 0.95))
+        "cutscene":
+            Game.ctext(hud, "ULTIMATE CUTSCENE", 250, 110, Color(1.0, 0.85, 0.1))
+            Game.ctext(hud, cutscene_name + "!", 350, 80, Color(1.0, 0.25, 0.25))
         "ko":
             Game.ctext(hud, banner, 320, 140, Color(0.95, 0.15, 0.15))
             Game.ctext(hud, sub, 400, 52, Color.WHITE)
         "matchend":
-            var who := _tag(1) if wins[0] >= 2 else _tag(2)
+            var who = _tag(1) if wins[0] >= 2 else _tag(2)
             Game.ctext(hud, who + " WINS THE MATCH!", 300, 80, Color(1.0, 0.85, 0.1))
             if int(phase_t * 2.0) % 2 == 0:
                 Game.ctext(hud, "PRESS ENTER", 400, 40, Color.WHITE)
@@ -196,7 +237,7 @@ func _draw_hud() -> void:
 
 # ---------- INPUT: pause + practice keys ----------
 func _input(e: InputEvent) -> void:
-    var ke := e as InputEventKey
+    var ke = e as InputEventKey
     if ke == null or not ke.pressed or ke.echo:
         return
     var k: int = ke.keycode
@@ -212,12 +253,12 @@ func _input(e: InputEvent) -> void:
     elif practice and k == KEY_B:
         p2.dummy_block = not p2.dummy_block
 
-const PAUSE_ITEMS := ["RESUME", "COMBO LIST", "RESTART", "QUIT TO MENU"]
-var pause_sel := 0
-var pause_page := "menu"
-var heal_t := 0.0
-var ko_t := 0.0
-var max_combo := 0
+const PAUSE_ITEMS = ["RESUME", "COMBO LIST", "RESTART", "QUIT TO MENU"]
+var pause_sel = 0
+var pause_page = "menu"
+var heal_t = 0.0
+var ko_t = 0.0
+var max_combo = 0
 
 func _pause_input(k: int) -> void:
     var confirm: bool = k == KEY_ENTER or k == KEY_KP_ENTER or k == KEY_SPACE
@@ -278,7 +319,7 @@ func _draw_practice_hud() -> void:
     Game.ctext(hud, "R: reset    B: dummy block [%s]    ESC / P: pause + combo list" % ("ON" if p2.dummy_block else "OFF"), 630, 20, Color(0.95, 0.95, 0.95))
 
 func _draw_combos() -> void:
-    var fs := [p1, p2]
+    var fs = [p1, p2]
     for i in 2:
         var f = fs[i]
         if f.combo_show > 0.0 and f.combo_hits >= 2:
@@ -302,21 +343,46 @@ func _draw_pause() -> void:
                 Game.ctext(hud, PAUSE_ITEMS[i], y, 34, Color(0.92, 0.92, 0.92))
         Game.ctext(hud, "W/S or Up/Down: move    ENTER: select    ESC: resume", 620, 20, Color(0.85, 0.85, 0.85))
     else:
-        Game.ctext(hud, "KENJI  -  COMBO LIST", 100, 50, Color(1.0, 0.85, 0.1))
-        hud.draw_rect(Rect2(90, 125, 972, 470), Color(0.08, 0.08, 0.18, 0.95))
+        var header_name: String = "KENJI"
+        if p1 and hasattr(p1, "char_name") and p1.char_name != "":
+            header_name = str(p1.char_name)
+        Game.ctext(hud, header_name + "  -  COMBO LIST", 100, 50, Color(1.0, 0.85, 0.1))
+
+        var entry_h: float = 78.0
+        var padding_top: float = 180.0
+        var panel_margin: float = 40.0
+        var combo_count: int = max(1, Game.COMBOS.size())
+        var combo_h: float = max(470.0, combo_count * entry_h + panel_margin)
+
+        hud.draw_rect(Rect2(90, 125, 972, combo_h), Color(0.08, 0.08, 0.18, 0.95))
+
+        var p1_punch_sym: String = "↑/→"
+        var p1_kick_sym: String = "↓/←"
+        var p2_punch_sym: String = "K"
+        var p2_kick_sym: String = "L"
+
         for i in Game.COMBOS.size():
             var c: Dictionary = Game.COMBOS[i]
-            var y: float = 180.0 + i * 78.0
-            var k1: Array = []
-            var k2: Array = []
-            for m in c["seq"]:
-                k1.append("F" if m == "punch" else "G")
-                k2.append("K" if m == "punch" else "L")
+            var y: float = padding_top + i * entry_h
             Game.label(hud, str(c["name"]), Vector2(120, y), 32, Color(1.0, 0.85, 0.1))
             Game.label(hud, str(c["desc"]), Vector2(120, y + 26), 18, Color(0.8, 0.8, 0.9))
-            Game.label(hud, " > ".join(c["seq"].map(func(m): return str(m).to_upper())), Vector2(470, y), 28, Color.WHITE)
-            Game.label(hud, "P1: %s      P2: %s" % [" ".join(k1), " ".join(k2)], Vector2(470, y + 26), 18, Color(0.8, 0.8, 0.9))
+
+            var seq_names: Array = []
+            var p1_keys: Array = []
+            var p2_keys: Array = []
+            for m in c["seq"]:
+                seq_names.append(str(m).to_upper())
+                if m == "punch":
+                    p1_keys.append(p1_punch_sym)
+                    p2_keys.append(p2_punch_sym)
+                else:
+                    p1_keys.append(p1_kick_sym)
+                    p2_keys.append(p2_kick_sym)
+
+            Game.label(hud, " > ".join(seq_names), Vector2(470, y), 28, Color.WHITE)
+            Game.label(hud, "P1: %s      P2: %s" % [" ".join(p1_keys), " ".join(p2_keys)], Vector2(470, y + 26), 18, Color(0.8, 0.8, 0.9))
             Game.label(hud, "+%d DMG" % int(c["bonus"]), Vector2(900, y), 26, Color(1.0, 0.4, 0.3))
+
         Game.ctext(hud, "HOW: land a hit, then press the next button right away - before the enemy recovers.", 530, 20, Color.WHITE)
         Game.ctext(hud, "Blocked or missed attacks break the chain.   Max 4 hits.", 560, 20, Color(0.85, 0.85, 0.95))
         Game.ctext(hud, "ESC / ENTER: back", 628, 20, Color(0.85, 0.85, 0.85))
