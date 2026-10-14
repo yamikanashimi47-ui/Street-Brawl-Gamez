@@ -5,29 +5,31 @@ const FighterScript = preload("res://scripts/fighter.gd")
 var p1
 var p2
 var hud: Node2D
-var round_no = 1
-var wins = [0, 0]
-var timer = 99.0
-var phase = "intro"   # intro / fight / ko / matchend / cutscene
-var phase_t = 0.0
+var round_no: int = 1
+var wins: Array = [0, 0]
+var timer: float = 99.0
+var phase := "intro"   # intro / fight / ko / matchend / cutscene
+var phase_t: float = 0.0
 var sparks: Array = []
-var shake = 0.0
-var trail1 = 100.0
-var trail2 = 100.0
-var banner = ""
-var sub = ""
-var leaving = false
-var practice = false
-var cutscene_name = ""
+var shake: float = 0.0
+var trail1: float = 100.0
+var trail2: float = 100.0
+var banner: String = ""
+var sub: String = ""
+var leaving: bool = false
+var practice: bool = false
+var cutscene_name: String = ""
 var cutscene_source = null
 
+# combo list navigation state
+var combo_sel: int = 0
+
 func _ready() -> void:
-    var fighter_class = FighterScript
-    if Game.has("selected_fighter") and Game.selected_fighter == "ryu":
+    var fighter_class: Script = FighterScript
+    var selected_fighter_name = Game.get("selected_fighter")
+    if selected_fighter_name != null and str(selected_fighter_name) == "ryu":
         if FileAccess.file_exists("res://scripts/ryu.gd"):
             fighter_class = load("res://scripts/ryu.gd")
-        else:
-            fighter_class = FighterScript
     p1 = fighter_class.new()
     p2 = FighterScript.new()
     p1.pid = 1
@@ -38,11 +40,6 @@ func _ready() -> void:
     Game.paused = false
     p2.gi = Color(0.45, 0.6, 0.98)
     p2.band = Color(1.0, 0.85, 0.1)
-    if p1.has_method("char_name") == false and Game.has("selected_fighter") and Game.selected_fighter == "ryu":
-        # handled by ryu.gd if present; keep defaults otherwise
-        p1.char_name = "RYU"
-        p1.gi = Color(0.9, 0.22, 0.16)
-        p1.band = Color(0.95, 0.95, 0.8)
     p1.opp = p2
     p2.opp = p1
     add_child(p1)
@@ -66,6 +63,7 @@ func _start_round() -> void:
     timer = 99.0
     phase = "intro"
     phase_t = 0.0
+    combo_sel = 0
     if practice:
         phase = "fight"
         p1.locked = false
@@ -91,7 +89,7 @@ func _end_round() -> void:
     phase_t = 0.0
     p1.locked = true
     p2.locked = true
-    var w = 0
+    var w: int = 0
     if p1.hp > p2.hp:
         w = 1
     elif p2.hp > p1.hp:
@@ -137,7 +135,7 @@ func _physics_process(delta: float) -> void:
         "cutscene":
             if phase_t > 1.5:
                 if cutscene_source != null and cutscene_source.opp != null and cutscene_source.opp.has_method("take_hit"):
-                    var dir = 1 if cutscene_source.opp.position.x < cutscene_source.position.x else -1
+                    var dir: int = 1 if cutscene_source.opp.position.x < cutscene_source.position.x else -1
                     cutscene_source.opp.take_hit(260, 1.2, dir, true)
                     cutscene_source.state = "win"
                 phase = "fight"
@@ -161,7 +159,7 @@ func _physics_process(delta: float) -> void:
         var dx: float = p2.position.x - p1.position.x
         if absf(dx) < 56.0:
             var push: float = (56.0 - absf(dx)) * 0.5
-            var sgn = 1.0 if dx >= 0.0 else -1.0
+            var sgn := 1.0 if dx >= 0.0 else -1.0
             p1.position.x -= push * sgn
             p2.position.x += push * sgn
     trail1 = move_toward(trail1, float(p1.hp), 25.0 * delta)
@@ -177,9 +175,8 @@ func _physics_process(delta: float) -> void:
 func _draw() -> void:
     Game.draw_stage(self, Time.get_ticks_msec() / 1000.0)
 
-# ---------- HUD ----------
 func _bar(x: float, from_right: bool, hp_now: float, hp_trail: float) -> void:
-    var w = 440.0
+    var w: float = 440.0
     hud.draw_rect(Rect2(x - 5, 35, w + 10, 38), Color(0, 0, 0, 0.9))
     hud.draw_rect(Rect2(x, 40, w, 28), Color(0.3, 0.04, 0.04))
     var tw: float = w * hp_trail / 100.0
@@ -194,22 +191,20 @@ func _bar(x: float, from_right: bool, hp_now: float, hp_trail: float) -> void:
 func _draw_hud() -> void:
     _bar(60.0, false, float(p1.hp), trail1)
     _bar(652.0, true, float(p2.hp), trail2)
-    Game.label(hud, _tag(1) + " " + (p1.char_name if (p1 and hasattr(p1, "char_name") and p1.char_name != "") else "KENJI"), Vector2(60, 108), 24, Color.WHITE, 440, true)
-    Game.label(hud, _tag(2) + " " + (p2.char_name if (p2 and hasattr(p2, "char_name") and p2.char_name != "") else "KENJI"), Vector2(652, 108), 24, Color.WHITE, 440, true)
+    Game.label(hud, _tag(1) + " " + (p1.char_name if p1 and p1.char_name != "" else "KENJI"), Vector2(60, 108), 24, Color.WHITE, 440, true)
+    Game.label(hud, _tag(2) + " " + (p2.char_name if p2 and p2.char_name != "" else "KENJI"), Vector2(652, 108), 24, Color.WHITE, 440, true)
     for i in (0 if practice else 2):
         hud.draw_circle(Vector2(75 + i * 24, 128), 8, Color(1, 0.85, 0.1) if wins[0] > i else Color(0.25, 0.25, 0.3))
         hud.draw_circle(Vector2(1077 - i * 24, 128), 8, Color(1, 0.85, 0.1) if wins[1] > i else Color(0.25, 0.25, 0.3))
     hud.draw_rect(Rect2(526, 32, 100, 66), Color(0, 0, 0, 0.9))
     Game.label(hud, "--" if practice else str(int(ceil(timer))), Vector2(526, 86), 48, Color.WHITE, 100, true)
-    # hit sparks
     for s in sparks:
         var k: float = s["t"] / 0.25
-        var col = Color(0.4, 0.7, 1.0) if s["b"] else Color(1.0, 0.9, 0.3)
+        var col := Color(0.4, 0.7, 1.0) if s["b"] else Color(1.0, 0.9, 0.3)
         for i in 8:
             var a: float = i * PI / 4.0 + 0.3
-            var d = Vector2(cos(a), sin(a))
+            var d := Vector2(cos(a), sin(a))
             hud.draw_line(s["pos"] + d * (8.0 + k * 20.0), s["pos"] + d * (22.0 + k * 40.0), col, 5.0 * (1.0 - k) + 1.0)
-    # banners
     match phase:
         "intro":
             if phase_t < 1.2:
@@ -225,7 +220,7 @@ func _draw_hud() -> void:
             Game.ctext(hud, banner, 320, 140, Color(0.95, 0.15, 0.15))
             Game.ctext(hud, sub, 400, 52, Color.WHITE)
         "matchend":
-            var who = _tag(1) if wins[0] >= 2 else _tag(2)
+            var who: String = _tag(1) if wins[0] >= 2 else _tag(2)
             Game.ctext(hud, who + " WINS THE MATCH!", 300, 80, Color(1.0, 0.85, 0.1))
             if int(phase_t * 2.0) % 2 == 0:
                 Game.ctext(hud, "PRESS ENTER", 400, 40, Color.WHITE)
@@ -235,9 +230,15 @@ func _draw_hud() -> void:
     if Game.paused:
         _draw_pause()
 
-# ---------- INPUT: pause + practice keys ----------
+const PAUSE_ITEMS := ["RESUME", "COMBO LIST", "RESTART", "QUIT TO MENU"]
+var pause_sel: int = 0
+var pause_page: String = "menu"
+var heal_t: float = 0.0
+var ko_t: float = 0.0
+var max_combo: int = 0
+
 func _input(e: InputEvent) -> void:
-    var ke = e as InputEventKey
+    var ke := e as InputEventKey
     if ke == null or not ke.pressed or ke.echo:
         return
     var k: int = ke.keycode
@@ -253,16 +254,16 @@ func _input(e: InputEvent) -> void:
     elif practice and k == KEY_B:
         p2.dummy_block = not p2.dummy_block
 
-const PAUSE_ITEMS = ["RESUME", "COMBO LIST", "RESTART", "QUIT TO MENU"]
-var pause_sel = 0
-var pause_page = "menu"
-var heal_t = 0.0
-var ko_t = 0.0
-var max_combo = 0
-
 func _pause_input(k: int) -> void:
     var confirm: bool = k == KEY_ENTER or k == KEY_KP_ENTER or k == KEY_SPACE
+    # If user is on the combos page, allow Up/Down to move the selection
     if pause_page == "combos":
+        if k == KEY_UP or k == KEY_W:
+            combo_sel = max(combo_sel - 1, 0)
+            return
+        elif k == KEY_DOWN or k == KEY_S:
+            combo_sel = min(combo_sel + 1, max(0, Game.COMBOS.size() - 1))
+            return
         if confirm or k == KEY_ESCAPE:
             pause_page = "menu"
         return
@@ -278,6 +279,7 @@ func _pause_input(k: int) -> void:
                 Game.paused = false
             1:
                 pause_page = "combos"
+                combo_sel = 0
             2:
                 Game.paused = false
                 Game.goto("res://scenes/fight.tscn")
@@ -285,7 +287,6 @@ func _pause_input(k: int) -> void:
                 Game.paused = false
                 Game.goto("res://scenes/main_menu.tscn")
 
-# ---------- PRACTICE MODE ----------
 func _practice_reset() -> void:
     p1.reset_fighter(330.0, 1)
     p2.reset_fighter(822.0, -1)
@@ -319,7 +320,7 @@ func _draw_practice_hud() -> void:
     Game.ctext(hud, "R: reset    B: dummy block [%s]    ESC / P: pause + combo list" % ("ON" if p2.dummy_block else "OFF"), 630, 20, Color(0.95, 0.95, 0.95))
 
 func _draw_combos() -> void:
-    var fs = [p1, p2]
+    var fs := [p1, p2]
     for i in 2:
         var f = fs[i]
         if f.combo_show > 0.0 and f.combo_hits >= 2:
@@ -329,7 +330,6 @@ func _draw_combos() -> void:
                 Game.label(hud, f.combo_name, Vector2(x, 312), 34, Color(1.0, 0.35, 0.2), 440, true)
             Game.label(hud, "%d DMG" % f.combo_dmg, Vector2(x, 346), 26, Color.WHITE, 440, true)
 
-# ---------- PAUSE MENU ----------
 func _draw_pause() -> void:
     hud.draw_rect(Rect2(0, 0, Game.W, Game.H), Color(0, 0, 0, 0.7))
     if pause_page == "menu":
@@ -344,7 +344,7 @@ func _draw_pause() -> void:
         Game.ctext(hud, "W/S or Up/Down: move    ENTER: select    ESC: resume", 620, 20, Color(0.85, 0.85, 0.85))
     else:
         var header_name: String = "KENJI"
-        if p1 and hasattr(p1, "char_name") and p1.char_name != "":
+        if p1 and p1.char_name != "":
             header_name = str(p1.char_name)
         Game.ctext(hud, header_name + "  -  COMBO LIST", 100, 50, Color(1.0, 0.85, 0.1))
 
@@ -361,10 +361,17 @@ func _draw_pause() -> void:
         var p2_punch_sym: String = "K"
         var p2_kick_sym: String = "L"
 
+        # draw combos and highlight the selected one
         for i in Game.COMBOS.size():
             var c: Dictionary = Game.COMBOS[i]
             var y: float = padding_top + i * entry_h
-            Game.label(hud, str(c["name"]), Vector2(120, y), 32, Color(1.0, 0.85, 0.1))
+            # highlight background for selected combo
+            if i == combo_sel:
+                hud.draw_rect(Rect2(100, y - 6, 852, entry_h - 10), Color(1, 1, 1, 0.04))
+                Game.label(hud, str(c["name"]), Vector2(120, y), 32, Color(1.0, 0.95, 0.5))
+            else:
+                Game.label(hud, str(c["name"]), Vector2(120, y), 32, Color(1.0, 0.85, 0.1))
+
             Game.label(hud, str(c["desc"]), Vector2(120, y + 26), 18, Color(0.8, 0.8, 0.9))
 
             var seq_names: Array = []
@@ -383,6 +390,6 @@ func _draw_pause() -> void:
             Game.label(hud, "P1: %s      P2: %s" % [" ".join(p1_keys), " ".join(p2_keys)], Vector2(470, y + 26), 18, Color(0.8, 0.8, 0.9))
             Game.label(hud, "+%d DMG" % int(c["bonus"]), Vector2(900, y), 26, Color(1.0, 0.4, 0.3))
 
-        Game.ctext(hud, "HOW: land a hit, then press the next button right away - before the enemy recovers.", 530, 20, Color.WHITE)
+        Game.ctext(hud, "USE UP/DOWN to scroll combos. ENTER/ESC: back", 530, 20, Color.WHITE)
+        Game.ctext(hud, "HOW: land a hit, then press the next button right away - before the enemy recovers.", 530, 44, Color(0.9, 0.9, 0.9))
         Game.ctext(hud, "Blocked or missed attacks break the chain.   Max 4 hits.", 560, 20, Color(0.85, 0.85, 0.95))
-        Game.ctext(hud, "ESC / ENTER: back", 628, 20, Color(0.85, 0.85, 0.85))
